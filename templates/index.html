@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🔥 FlameVision AI • Deteksi Api Real-Time</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Top Navbar -->
+  <header class="navbar">
+    <div class="brand">
+      <span class="brand-icon">🔥</span>
+      <h1 class="brand-title">FlameVision AI • Deteksi Api Real-Time</h1>
+    </div>
+
+    <div class="nav-actions">
+      <div id="statusIndicator" class="status-indicator normal">
+        <span class="status-dot"></span>
+        <span id="statusText">System Normal</span>
+      </div>
+
+      <button id="btnAudioToggle" class="btn" onclick="toggleAudioAlarm()">
+        <span id="audioIcon">🔊</span> Alarm: <strong id="audioStateText">ON</strong>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-container">
+    
+    <!-- Left Stage: Video / Camera Player -->
+    <section class="video-stage">
+      <div class="video-frame-wrapper" id="playerWrapper">
+        
+        <!-- HTML5 Video element for client camera stream -->
+        <video id="clientVideo" autoplay playsinline muted></video>
+
+        <!-- Canvas where camera + OpenCV bounding boxes are rendered -->
+        <canvas id="canvasOverlay"></canvas>
+
+        <!-- Image stream for server-side video / sample video -->
+        <img id="serverStream" src="/video_feed" alt="Server Stream">
+
+        <!-- Alarm pulsing frame border -->
+        <div id="alarmOverlay" class="video-overlay-alarm"></div>
+
+        <!-- Camera Status / Error Overlay -->
+        <div id="cameraPrompt" class="camera-prompt hidden">
+          <span style="font-size: 2.5rem;" id="promptIcon">📷</span>
+          <h3 id="promptTitle">Akses Kamera Diperlukan</h3>
+          <p id="promptDesc">Klik tombol di bawah untuk mengaktifkan kamera laptop/HP ini.</p>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
+            <button class="btn btn-primary" id="btnReqCam" onclick="startClientCamera()">
+              ▶ Buka Kamera Sekarang
+            </button>
+            <label class="btn" style="cursor: pointer;">
+              📁 Upload Foto/Video Api
+              <input type="file" id="fileInput" accept="image/*,video/*" style="display: none;" onchange="handleFileUpload(this.files[0])">
+            </label>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Controls Toolbar -->
+      <div class="video-toolbar">
+        <div class="btn-group">
+          <button class="btn active" id="btnAnnotated" onclick="setViewMode('annotated')">🎯 Bounding Box</button>
+          <button class="btn" id="btnSplit" onclick="setViewMode('split')">🔀 Split / Mask</button>
+          <button class="btn" id="btnRaw" onclick="setViewMode('raw')">📷 Raw Feed</button>
+          <button class="btn" id="btnFlipCam" onclick="flipCamera()">🔄 Ganti Kamera (HP/Depan/Belakang)</button>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem;">
+          <label class="btn" style="cursor: pointer; background: var(--bg-glass);">
+            📂 Uji Gambar/File
+            <input type="file" accept="image/*,video/*" style="display: none;" onchange="handleFileUpload(this.files[0])">
+          </label>
+          <button class="btn btn-primary" onclick="captureSnapshot()">
+            📸 Snapshot
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Sidebar -->
+    <aside class="sidebar">
+      
+      <!-- Network / Mobile Access Banner -->
+      <div class="network-badge">
+        📱 <strong>Akses Dari HP / Laptop Lain:</strong><br>
+        Buka: <strong>http://{{ local_ip }}:5000</strong> pada browser HP yang terhubung ke Wi-Fi yang sama.<br>
+        <small style="color: var(--text-muted);">(Buka di <strong>http://localhost:5000</strong> untuk akses kamera tanpa HTTPS)</small>
+      </div>
+
+      <!-- Live Metrics Card -->
+      <div class="card">
+        <div class="card-title">Live Telemetry</div>
+        <div class="telemetry-grid">
+          <div class="telemetry-box">
+            <div class="telemetry-label">Flame Status</div>
+            <div id="metricFire" class="telemetry-value" style="color: #10b981;">SAFE</div>
+          </div>
+          <div class="telemetry-box">
+            <div class="telemetry-label">Confidence</div>
+            <div id="metricConf" class="telemetry-value">0%</div>
+          </div>
+          <div class="telemetry-box">
+            <div class="telemetry-label">Flame Count</div>
+            <div id="metricCount" class="telemetry-value">0</div>
+          </div>
+          <div class="telemetry-box">
+            <div class="telemetry-label">Stream FPS</div>
+            <div id="metricFps" class="telemetry-value">0.0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Source Selection Card -->
+      <div class="card">
+        <div class="card-title">Pilih Sumber Video</div>
+        <div class="control-group">
+          <select id="sourceSelect" class="select-input" onchange="switchSource(this.value)">
+            <option value="client" selected>📱 Kamera Browser Ini (HP / Laptop)</option>
+            <option value="sample_fire.mp4">🔥 Video Simulasi Api (sample_fire.mp4)</option>
+            <option value="0">🖥️ Kamera Server OpenCV (Index 0)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Sensitivity Slider Card -->
+      <div class="card">
+        <div class="card-title">Sensitivitas Deteksi Api</div>
+        
+        <div class="control-group">
+          <div class="control-label">
+            <span>Hue Max (Batas Warna Kuning/Jingga)</span>
+            <span id="valHMax">25</span>
+          </div>
+          <input type="range" min="15" max="50" value="25" class="control-slider" id="sliderHMax" oninput="updateSettings()">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Saturation Min (Kepekatan Warna Api)</span>
+            <span id="valSMin">100</span>
+          </div>
+          <input type="range" min="50" max="220" value="100" class="control-slider" id="sliderSMin" oninput="updateSettings()">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Value Min (Kecerahan Api Minimum)</span>
+            <span id="valVMin">190</span>
+          </div>
+          <input type="range" min="120" max="250" value="190" class="control-slider" id="sliderVMin" oninput="updateSettings()">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Min Contour Area (Luas Minimum Piksel)</span>
+            <span id="valMinArea">600</span>
+          </div>
+          <input type="range" min="200" max="3000" step="50" value="600" class="control-slider" id="sliderMinArea" oninput="updateSettings()">
+        </div>
+      </div>
+
+      <!-- Snapshots Card -->
+      <div class="card">
+        <div class="card-title">Snapshot Tersimpan</div>
+        <div id="snapshotGallery" class="snapshots-container">
+          <span style="color: var(--text-muted); font-size: 0.8rem;">Belum ada snapshot.</span>
+        </div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- Frontend Logic -->
+  <script>
+    let currentSource = 'client';
+    let viewMode = 'annotated';
+    let audioAlarmEnabled = true;
+    let audioCtx = null;
+    let lastAlarmBeep = 0;
+
+    const clientVideo = document.getElementById('clientVideo');
+    const canvasOverlay = document.getElementById('canvasOverlay');
+    const ctx = canvasOverlay.getContext('2d');
+    const serverStream = document.getElementById('serverStream');
+    const cameraPrompt = document.getElementById('cameraPrompt');
+    const promptTitle = document.getElementById('promptTitle');
+    const promptDesc = document.getElementById('promptDesc');
+    const promptIcon = document.getElementById('promptIcon');
+
+    let clientStream = null;
+    let currentFacingMode = 'user'; // default front / laptop camera
+    let isProcessingFrame = false;
+    let lastDetections = [];
+    let lastMaskImage = null;
+    let frameSendTimer = null;
+    let fpsCounter = 0;
+    let lastFpsTime = performance.now();
+    let currentFps = 0.0;
+    let isUploadingFile = false;
+
+    // Web Audio Synthesizer Alarm
+    function playAlarmTone() {
+      if (!audioAlarmEnabled) return;
+      const now = Date.now();
+      if (now - lastAlarmBeep < 800) return;
+      lastAlarmBeep = now;
+
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(900, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1800, audioCtx.currentTime + 0.15);
+        osc.frequency.exponentialRampToValueAtTime(900, audioCtx.currentTime + 0.3);
+
+        gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+      } catch (err) {
+        console.warn("Audio error:", err);
+      }
+    }
+
+    function toggleAudioAlarm() {
+      audioAlarmEnabled = !audioAlarmEnabled;
+      document.getElementById("audioStateText").textContent = audioAlarmEnabled ? "ON" : "OFF";
+      document.getElementById("audioIcon").textContent = audioAlarmEnabled ? "🔊" : "🔇";
+      if (audioAlarmEnabled && !audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    // Progressive getUserMedia with Fallbacks
+    async function startClientCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showCameraError("Browser Tidak Mendukung Kamera", "Browser Anda membatasi akses kamera melalui HTTP. Silakan gunakan http://localhost:5000 atau upload gambar/video langsung.");
+        return;
+      }
+
+      promptTitle.textContent = "Menghubungkan Kamera...";
+      promptDesc.textContent = "Mohon klik 'Allow / Izinkan' pada popup izin browser.";
+
+      if (clientStream) {
+        clientStream.getTracks().forEach(track => track.stop());
+        clientStream = null;
+      }
+
+      let stream = null;
+
+      // Strategy 1: Try requested facingMode
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: currentFacingMode },
+          audio: false
+        });
+      } catch (e1) {
+        console.warn("FacingMode constraint failed, trying basic video...", e1);
+        // Strategy 2: Try basic video constraint (works on any laptop webcam)
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        } catch (e2) {
+          console.error("All camera getUserMedia attempts failed:", e2);
+          showCameraError("Izin Kamera Ditolak / Dibatasi", getErrorMessage(e2));
+          return;
+        }
+      }
+
+      if (!stream) {
+        showCameraError("Kamera Tidak Terdeteksi", "Pastikan kamera tidak sedang dipakai aplikasi lain (Zoom, Teams, dll).");
+        return;
+      }
+
+      clientStream = stream;
+      clientVideo.srcObject = stream;
+
+      clientVideo.onloadedmetadata = () => {
+        clientVideo.play().then(() => {
+          cameraPrompt.classList.add('hidden');
+          serverStream.style.display = 'none';
+          canvasOverlay.style.display = 'block';
+
+          canvasOverlay.width = clientVideo.videoWidth || 640;
+          canvasOverlay.height = clientVideo.videoHeight || 480;
+
+          startFramePipeline();
+        }).catch(err => {
+          console.error("Video play error:", err);
+        });
+      };
+    }
+
+    function getErrorMessage(err) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        return "Akses kamera diblokir di browser. Klik ikon gembok 🔒 di sebelah kiri URL address bar, lalu ubah Camera menjadi 'Allow/Izinkan', lalu refresh halaman.";
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        return "Tidak ada kamera yang terpasang di perangkat ini.";
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        return "Kamera sedang digunakan oleh aplikasi lain. Tutup aplikasi yang menggunakan kamera lalu coba lagi.";
+      }
+      return err.message || "Gagal mengakses kamera.";
+    }
+
+    function showCameraError(title, desc) {
+      cameraPrompt.classList.remove('hidden');
+      promptIcon.textContent = "⚠️";
+      promptTitle.textContent = title;
+      promptDesc.textContent = desc;
+      document.getElementById('statusText').textContent = 'Kamera Dibatasi';
+    }
+
+    // Flip Camera between Front & Back
+    function flipCamera() {
+      currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+      if (currentSource === 'client') {
+        startClientCamera();
+      }
+    }
+
+    // Handle Direct File Upload (Image or Video)
+    function handleFileUpload(file) {
+      if (!file) return;
+      isUploadingFile = true;
+      if (clientStream) {
+        clientStream.getTracks().forEach(t => t.stop());
+        clientStream = null;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64Data = e.target.result;
+        const img = new Image();
+        img.onload = async () => {
+          cameraPrompt.classList.add('hidden');
+          serverStream.style.display = 'none';
+          canvasOverlay.style.display = 'block';
+
+          canvasOverlay.width = img.width;
+          canvasOverlay.height = img.height;
+          ctx.drawImage(img, 0, 0);
+
+          // Process this image on backend
+          const res = await fetch('/api/process_frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: base64Data })
+          });
+          const data = await res.json();
+          if (data && !data.error) {
+            lastDetections = data.detections || [];
+            drawClientDetections(img.width, img.height);
+            updateTelemetryUI(data.is_fire, data.fire_count, data.confidence);
+          }
+        };
+        img.src = base64Data;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Frame Pipeline Loop
+    function startFramePipeline() {
+      if (frameSendTimer) clearInterval(frameSendTimer);
+
+      // Render loop
+      function renderLoop() {
+        if (!isUploadingFile && currentSource === 'client' && clientVideo.readyState === clientVideo.HAVE_ENOUGH_DATA) {
+          const w = canvasOverlay.width = clientVideo.videoWidth;
+          const h = canvasOverlay.height = clientVideo.videoHeight;
+
+          ctx.clearRect(0, 0, w, h);
+
+          // 1. Draw Camera Feed
+          if (viewMode === 'split' && lastMaskImage) {
+            ctx.drawImage(clientVideo, 0, 0, w / 2, h);
+            ctx.drawImage(lastMaskImage, w / 2, 0, w / 2, h);
+          } else {
+            ctx.drawImage(clientVideo, 0, 0, w, h);
+          }
+
+          // 2. Draw Bounding Boxes
+          if (viewMode === 'annotated') {
+            drawClientDetections(w, h);
+          }
+
+          // Compute client FPS
+          fpsCounter++;
+          const now = performance.now();
+          if (now - lastFpsTime >= 1000) {
+            currentFps = (fpsCounter * 1000) / (now - lastFpsTime);
+            fpsCounter = 0;
+            lastFpsTime = now;
+            document.getElementById('metricFps').textContent = currentFps.toFixed(1);
+          }
+        }
+
+        requestAnimationFrame(renderLoop);
+      }
+      requestAnimationFrame(renderLoop);
+
+      // Frame sender to OpenCV backend at ~12-15 FPS
+      const offscreenCanvas = document.createElement('canvas');
+      const offCtx = offscreenCanvas.getContext('2d');
+
+      frameSendTimer = setInterval(async () => {
+        if (isUploadingFile || currentSource !== 'client' || isProcessingFrame || clientVideo.readyState !== clientVideo.HAVE_ENOUGH_DATA) {
+          return;
+        }
+
+        isProcessingFrame = true;
+        try {
+          const scale = 0.55;
+          const sendW = Math.round(clientVideo.videoWidth * scale);
+          const sendH = Math.round(clientVideo.videoHeight * scale);
+          offscreenCanvas.width = sendW;
+          offscreenCanvas.height = sendH;
+          offCtx.drawImage(clientVideo, 0, 0, sendW, sendH);
+
+          const base64Image = offscreenCanvas.toDataURL('image/jpeg', 0.65);
+
+          const res = await fetch('/api/process_frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image: base64Image,
+              include_mask: (viewMode === 'split')
+            })
+          });
+
+          const data = await res.json();
+          if (data && !data.error) {
+            lastDetections = (data.detections || []).map(d => ({
+              x: Math.round(d.x / scale),
+              y: Math.round(d.y / scale),
+              w: Math.round(d.w / scale),
+              h: Math.round(d.h / scale),
+              confidence: d.confidence
+            }));
+
+            if (data.mask_b64) {
+              const img = new Image();
+              img.src = "data:image/jpeg;base64," + data.mask_b64;
+              img.onload = () => { lastMaskImage = img; };
+            }
+
+            updateTelemetryUI(data.is_fire, data.fire_count, data.confidence);
+          }
+        } catch (err) {
+          console.error("Frame process error:", err);
+        } finally {
+          isProcessingFrame = false;
+        }
+      }, 80);
+    }
+
+    // Render stylish HUD Bounding Boxes on Canvas
+    function drawClientDetections(w, h) {
+      for (const det of lastDetections) {
+        const { x, y, w: bw, h: bh, confidence } = det;
+
+        // 1. Red Bounding Box
+        ctx.strokeStyle = "#ff2211";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, y, bw, bh);
+
+        // 2. Corner Bracket Accents
+        const cornerLen = Math.min(22, Math.max(10, Math.floor(bw / 4)));
+        ctx.strokeStyle = "#ff9800";
+        ctx.lineWidth = 4;
+
+        // Top-left
+        ctx.beginPath();
+        ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y);
+        // Top-right
+        ctx.moveTo(x + bw - cornerLen, y); ctx.lineTo(x + bw, y); ctx.lineTo(x + bw, y + cornerLen);
+        // Bottom-left
+        ctx.moveTo(x, y + bh - cornerLen); ctx.lineTo(x, y + bh); ctx.lineTo(x + cornerLen, y + bh);
+        // Bottom-right
+        ctx.moveTo(x + bw - cornerLen, y + bh); ctx.lineTo(x + bw, y + bh); ctx.lineTo(x + bw, y + bh - cornerLen);
+        ctx.stroke();
+
+        // 3. 'FIRE DETECTED' Badge
+        const labelText = `FIRE DETECTED (${Math.round(confidence)}%)`;
+        ctx.font = "bold 13px Inter, sans-serif";
+        const textMetrics = ctx.measureText(labelText);
+        const badgeW = textMetrics.width + 16;
+        const badgeH = 24;
+        const badgeY = (y >= badgeH + 6) ? (y - badgeH - 4) : (y + 4);
+
+        ctx.fillStyle = "#d31200";
+        ctx.fillRect(x, badgeY, badgeW, badgeH);
+        ctx.strokeStyle = "#ff4433";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, badgeY, badgeW, badgeH);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(labelText, x + 8, badgeY + 16);
+      }
+    }
+
+    // Update Status Indicators & Alarm
+    function updateTelemetryUI(isFire, fireCount, confidence) {
+      const statusIndicator = document.getElementById('statusIndicator');
+      const statusText = document.getElementById('statusText');
+      const alarmOverlay = document.getElementById('alarmOverlay');
+      const metricFire = document.getElementById('metricFire');
+
+      if (isFire) {
+        statusIndicator.className = 'status-indicator alarm';
+        statusText.textContent = `FIRE DETECTED (${fireCount})`;
+        alarmOverlay.classList.add('active');
+        metricFire.textContent = 'DANGER 🔥';
+        metricFire.style.color = '#ff3823';
+        playAlarmTone();
+      } else {
+        statusIndicator.className = 'status-indicator normal';
+        statusText.textContent = 'System Normal';
+        alarmOverlay.classList.remove('active');
+        metricFire.textContent = 'SAFE';
+        metricFire.style.color = '#10b981';
+      }
+
+      document.getElementById('metricConf').textContent = `${confidence}%`;
+      document.getElementById('metricCount').textContent = fireCount;
+    }
+
+    // Switch Source
+    function switchSource(src) {
+      currentSource = src;
+      isUploadingFile = false;
+      lastDetections = [];
+      lastMaskImage = null;
+
+      if (src === 'client') {
+        serverStream.style.display = 'none';
+        canvasOverlay.style.display = 'block';
+        startClientCamera();
+      } else {
+        if (clientStream) {
+          clientStream.getTracks().forEach(track => track.stop());
+          clientStream = null;
+        }
+        cameraPrompt.classList.add('hidden');
+        canvasOverlay.style.display = 'none';
+        serverStream.style.display = 'block';
+        serverStream.src = `/video_feed?t=${Date.now()}`;
+      }
+
+      fetch('/api/set_source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: src })
+      });
+    }
+
+    // Set View Mode
+    function setViewMode(mode) {
+      viewMode = mode;
+      document.querySelectorAll('.video-toolbar .btn-group .btn').forEach(b => {
+        if (b.id !== 'btnFlipCam') b.classList.remove('active');
+      });
+      const activeBtn = {
+        'annotated': 'btnAnnotated',
+        'split': 'btnSplit',
+        'raw': 'btnRaw'
+      }[mode];
+      if (activeBtn) document.getElementById(activeBtn).classList.add('active');
+
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ view_mode: mode })
+      });
+    }
+
+    // Update Sensitivity Settings
+    function updateSettings() {
+      const h_max = parseInt(document.getElementById('sliderHMax').value);
+      const s_min = parseInt(document.getElementById('sliderSMin').value);
+      const v_min = parseInt(document.getElementById('sliderVMin').value);
+      const min_area = parseInt(document.getElementById('sliderMinArea').value);
+
+      document.getElementById('valHMax').textContent = h_max;
+      document.getElementById('valSMin').textContent = s_min;
+      document.getElementById('valVMin').textContent = v_min;
+      document.getElementById('valMinArea').textContent = min_area;
+
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          h_max: h_max,
+          s_min: s_min,
+          v_min: v_min,
+          min_contour_area: min_area
+        })
+      });
+    }
+
+    // Capture Snapshot
+    async function captureSnapshot() {
+      let payload = {};
+      if (currentSource === 'client' && canvasOverlay.width > 0) {
+        payload = { image: canvasOverlay.toDataURL('image/jpeg', 0.9) };
+      }
+
+      const res = await fetch('/api/snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        loadSnapshots();
+      }
+    }
+
+    // Load Snapshots Gallery
+    async function loadSnapshots() {
+      const res = await fetch('/api/snapshots');
+      const files = await res.json();
+      const container = document.getElementById('snapshotGallery');
+      if (files.length === 0) {
+        container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem;">Belum ada snapshot.</span>';
+        return;
+      }
+      container.innerHTML = files.slice(0, 10).map(f => `
+        <a href="${f.url}" target="_blank" class="snapshot-thumb" title="${f.filename}">
+          <img src="${f.url}" alt="${f.filename}">
+        </a>
+      `).join('');
+    }
+
+    // Polling Telemetry for Server Stream Mode
+    setInterval(async () => {
+      if (currentSource !== 'client') {
+        try {
+          const res = await fetch('/api/status');
+          const data = await res.json();
+          updateTelemetryUI(data.is_fire, data.fire_count, data.confidence);
+          document.getElementById('metricFps').textContent = data.fps.toFixed(1);
+        } catch (e) {}
+      }
+    }, 500);
+
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      startClientCamera();
+      loadSnapshots();
+    });
+  </script>
+</body>
+</html>
