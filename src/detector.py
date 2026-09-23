@@ -87,6 +87,62 @@ class FireDetector:
 
         return mask_clean, combined_mask
 
+    def _is_valid_fire_region(self, roi_bgr: np.ndarray, roi_mask: np.ndarray, contour: np.ndarray, area: float) -> Tuple[bool, float]:
+        """
+        Validate fire candidate to reject non-fire yellow/orange objects.
+        Analyzes:
+        1. Peak Luminance & Intensity Variation (Fire has bright hot spots / glowing core).
+        2. Red-to-Blue/Green dominance ratio.
+        3. Contour irregularity / roughness (fire is non-uniform).
+        """
+        if roi_bgr.size == 0 or roi_mask.size == 0:
+            return False, 0.0
+
+        # Masked pixels only
+        pixels_bgr = roi_bgr[roi_mask > 0]
+        if len(pixels_bgr) < 20:
+            return False, 0.0
+
+        b = pixels_bgr[:, 0].astype(float)
+        g = pixels_bgr[:, 1].astype(float)
+        r = pixels_bgr[:, 2].astype(float)
+
+        # 1. Fire must have strong Red channel dominance over Blue (cold colors)
+        mean_r = np.mean(r)
+        mean_g = np.mean(g)
+        mean_b = np.mean(b)
+
+        if mean_r < 150:  # Fire must have prominent red component
+            return False, 0.0
+
+        if (mean_r - mean_b) < 40:  # Yellow/orange objects with high blue/ambient are rejected
+            return False, 0.0
+
+        # 2. Hot-spot / Luminance Peak Check (Fire flames have bright core pixels)
+        max_intensity = np.max(0.299 * r + 0.587 * g + 0.114 * b)
+        std_intensity = np.std(0.299 * r + 0.587 * g + 0.114 * b)
+
+        # Fire has hot core luminance (> 140)
+        if max_intensity < 140:
+            return False, 0.0
+
+        # 3. Contour Shape / Roughness Check
+        perimeter = cv2.arcLength(contour, True)
+        if perimeter > 0:
+            # Compactness / Circularity measure (4 * pi * area / perimeter^2)
+            circularity = (4 * np.pi * area) / (perimeter * perimeter)
+            # Highly uniform & smooth circle/square without any internal gradient
+            if circularity > 0.92 and std_intensity < 5.0 and area > 1500:
+                return False, 0.0
+
+        # Calculate robust confidence score
+        lum_score = min(1.0, max_intensity / 255.0)
+        red_diff_score = min(1.0, (mean_r - mean_b) / 160.0)
+        texture_score = min(1.0, (std_intensity + 5.0) / 40.0)
+
+        confidence = (0.4 * lum_score) + (0.35 * red_diff_score) + (0.25 * texture_score)
+        return True, float(np.clip(confidence, 0.45, 0.99))
+
     def detect(self, frame: np.ndarray) -> Tuple[bool, List[Dict[str, Any]], np.ndarray]:
         """
         Process a single image frame and return detection results.
@@ -105,25 +161,24 @@ class FireDetector:
         contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         detections: List[Dict[str, Any]] = []
-
         frame_area = frame.shape[0] * frame.shape[1]
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            if area >= self.min_contour_area:
+            if area >= self.min_contour_area and area < (frame_area * 0.95):
                 x, y, w, h = cv2.boundingRect(cnt)
-                
-                # Aspect ratio & area sanity check (avoid full screen false positives)
-                if area < (frame_area * 0.95):
-                    # Compute confidence based on area and pixel density inside contour
-                    roi_mask = clean_mask[y : y + h, x : x + w]
-                    pixel_density = cv2.countNonZero(roi_mask) / (w * h) if (w * h) > 0 else 0
-                    confidence = min(1.0, 0.4 + (pixel_density * 0.6))
 
+                roi_bgr = frame[y : y + h, x : x + w]
+                roi_mask = clean_mask[y : y + h, x : x + w]
+
+                # Validate whether candidate is real flame or plain colored object
+                is_valid, confidence = self._is_valid_fire_region(roi_bgr, roi_mask, cnt, area)
+
+                if is_valid:
                     detections.append({
                         "bbox": (x, y, w, h),
                         "area": area,
-                        "confidence": float(confidence),
+                        "confidence": confidence,
                         "contour": cnt,
                     })
 
