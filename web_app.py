@@ -18,11 +18,18 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from src.detector import FireDetector
 from src.utils import draw_fire_boxes, create_side_by_side_view
+from src.mqtt_notifier import MQTTFireNotifier
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
 # Detector and shared state
 detector = FireDetector()
+mqtt_notifier = MQTTFireNotifier(
+    broker="76.13.19.250",
+    port=1883,
+    topic="flamevision/fire_alert",
+    enabled=True
+)
 lock = threading.Lock()
 
 current_source = "client"  # 'client' (browser camera), '0', '1', or 'sample_fire.mp4'
@@ -129,6 +136,9 @@ def generate_frames():
         is_fire, detections, mask = detector.detect(frame)
         conf = detections[0]["confidence"] if detections else 0.0
 
+        # Trigger MQTT Alarm to ESP32-C3
+        mqtt_notifier.publish_fire_alert(is_fire, len(detections), conf)
+
         latest_status.update({
             "is_fire": is_fire,
             "fire_count": len(detections),
@@ -194,6 +204,9 @@ def process_client_frame():
         is_fire, detections, mask = detector.detect(frame)
         top_conf = detections[0]["confidence"] if detections else 0.0
 
+        # Trigger MQTT Alarm to ESP32-C3
+        mqtt_notifier.publish_fire_alert(is_fire, len(detections), top_conf)
+
         # Format detection bounding boxes for client-side canvas rendering
         formatted_detections = []
         for det in detections:
@@ -234,6 +247,32 @@ def process_client_frame():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/mqtt", methods=["GET", "POST"])
+def mqtt_config():
+    """Manages MQTT broker settings and returns status."""
+    if request.method == "POST":
+        data = request.json or {}
+        broker = data.get("broker", mqtt_notifier.broker)
+        port = int(data.get("port", mqtt_notifier.port))
+        topic = data.get("topic", mqtt_notifier.topic)
+        enabled = bool(data.get("enabled", mqtt_notifier.enabled))
+
+        mqtt_notifier.update_config(broker=broker, port=port, topic=topic, enabled=enabled)
+        return jsonify({"status": "success", "mqtt": mqtt_notifier.get_status()})
+
+    return jsonify(mqtt_notifier.get_status())
+
+
+@app.route("/api/mqtt/test", methods=["POST"])
+def mqtt_test():
+    """Triggers a test buzzer alarm on the ESP32-C3 via MQTT."""
+    success = mqtt_notifier.publish_test_alarm()
+    return jsonify({
+        "status": "success" if success else "failed",
+        "message": "Sinyal uji buzzer berhasil dikirim via MQTT" if success else "Gagal mengirim sinyal (Periksa koneksi MQTT Broker)"
+    })
 
 
 @app.route("/api/status")

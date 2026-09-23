@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🔥 FlameVision AI • Deteksi Api Real-Time</title>
+  <title>Flame Vision</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,18 +14,22 @@
   <!-- Top Navbar -->
   <header class="navbar">
     <div class="brand">
-      <span class="brand-icon">🔥</span>
-      <h1 class="brand-title">FlameVision AI • Deteksi Api Real-Time</h1>
+      <h1 class="brand-title">Flame Vision</h1>
+      <span class="brand-subtitle">Sistem Pemantauan Api</span>
     </div>
 
     <div class="nav-actions">
-      <div id="statusIndicator" class="status-indicator normal">
+      <div id="statusIndicator" class="status-pill normal">
         <span class="status-dot"></span>
-        <span id="statusText">System Normal</span>
+        <span id="statusText">Status Normal</span>
       </div>
 
-      <button id="btnAudioToggle" class="btn" onclick="toggleAudioAlarm()">
-        <span id="audioIcon">🔊</span> Alarm: <strong id="audioStateText">ON</strong>
+      <button id="btnAudioToggle" class="btn btn-sm" onclick="toggleAudioAlarm()">
+        Alarm: <strong id="audioStateText">Aktif</strong>
+      </button>
+
+      <button class="btn btn-sm" onclick="testMilitaryAlarm()">
+        Uji Suara
       </button>
     </div>
   </header>
@@ -33,161 +37,232 @@
   <!-- Main Container -->
   <main class="main-container">
     
-    <!-- Left Stage: Video / Camera Player -->
-    <section class="video-stage">
-      <div class="video-frame-wrapper" id="playerWrapper">
-        
-        <!-- HTML5 Video element for client camera stream -->
-        <video id="clientVideo" autoplay playsinline muted></video>
+    <!-- Left Column: Top Telemetry + Camera + Bottom ESP32 & Log -->
+    <div class="left-column">
+      
+      <!-- 1. DI ATAS KAMERA: Akses Jaringan Lokal & Telemetri Real-Time -->
+      <section class="top-telemetry-bar">
+        <!-- Akses Jaringan Lokal -->
+        <div class="network-card">
+          <span class="label">Akses Jaringan Lokal (HP / Laptop):</span>
+          <span class="url">http://{{ local_ip }}:5000</span>
+        </div>
 
-        <!-- Canvas where camera + OpenCV bounding boxes are rendered -->
-        <canvas id="canvasOverlay"></canvas>
+        <!-- Telemetri Real-Time Grid -->
+        <div class="telemetry-grid-top">
+          <div class="telemetry-box">
+            <div class="metric-lbl">Status Api</div>
+            <div id="metricFire" class="metric-val" style="color: var(--status-safe);">Normal</div>
+          </div>
+          <div class="telemetry-box">
+            <div class="metric-lbl">Keyakinan</div>
+            <div id="metricConf" class="metric-val">0%</div>
+          </div>
+          <div class="telemetry-box">
+            <div class="metric-lbl">Titik Api</div>
+            <div id="metricCount" class="metric-val">0</div>
+          </div>
+          <div class="telemetry-box">
+            <div class="metric-lbl">Frame Rate</div>
+            <div id="metricFps" class="metric-val">0.0 FPS</div>
+          </div>
+        </div>
+      </section>
 
-        <!-- Image stream for server-side video / sample video -->
-        <img id="serverStream" src="/video_feed" alt="Server Stream">
+      <!-- 2. KAMERA / VIDEO STAGE -->
+      <section class="video-stage">
+        <div class="video-frame-wrapper" id="playerWrapper">
+          
+          <video id="clientVideo" autoplay playsinline muted></video>
+          <canvas id="canvasOverlay"></canvas>
+          <img id="serverStream" src="/video_feed" alt="Video Stream">
+          <div id="alarmOverlay" class="video-overlay-alarm"></div>
 
-        <!-- Alarm pulsing frame border -->
-        <div id="alarmOverlay" class="video-overlay-alarm"></div>
+          <!-- Camera Prompt -->
+          <div id="cameraPrompt" class="camera-prompt hidden">
+            <h3 id="promptTitle">Akses Kamera Diperlukan</h3>
+            <p id="promptDesc">Klik tombol di bawah untuk mengaktifkan video kamera.</p>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; margin-top: 0.5rem;">
+              <button class="btn btn-primary btn-sm" id="btnReqCam" onclick="startClientCamera()">
+                Buka Kamera
+              </button>
+              <label class="btn btn-sm" style="cursor: pointer;">
+                Pilih File Video/Foto
+                <input type="file" id="fileInput" accept="image/*,video/*" style="display: none;" onchange="handleFileUpload(this.files[0])">
+              </label>
+            </div>
+          </div>
 
-        <!-- Camera Status / Error Overlay -->
-        <div id="cameraPrompt" class="camera-prompt hidden">
-          <span style="font-size: 2.5rem;" id="promptIcon">📷</span>
-          <h3 id="promptTitle">Akses Kamera Diperlukan</h3>
-          <p id="promptDesc">Klik tombol di bawah untuk mengaktifkan kamera laptop/HP ini.</p>
-          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
-            <button class="btn btn-primary" id="btnReqCam" onclick="startClientCamera()">
-              ▶ Buka Kamera Sekarang
-            </button>
-            <label class="btn" style="cursor: pointer;">
-              📁 Upload Foto/Video Api
-              <input type="file" id="fileInput" accept="image/*,video/*" style="display: none;" onchange="handleFileUpload(this.files[0])">
+        </div>
+
+        <!-- Video Toolbar -->
+        <div class="video-toolbar">
+          <div class="btn-group">
+            <button class="btn btn-sm active" id="btnAnnotated" onclick="setViewMode('annotated')">Kotak Deteksi</button>
+            <button class="btn btn-sm" id="btnSplit" onclick="setViewMode('split')">Mask Sensor</button>
+            <button class="btn btn-sm" id="btnRaw" onclick="setViewMode('raw')">Kamera Asli</button>
+            <button class="btn btn-sm" id="btnFlipCam" onclick="flipCamera()">Ganti Kamera</button>
+          </div>
+
+          <div style="display: flex; gap: 0.35rem;">
+            <label class="btn btn-sm" style="cursor: pointer;">
+              Uji File
+              <input type="file" accept="image/*,video/*" style="display: none;" onchange="handleFileUpload(this.files[0])">
             </label>
+            <button class="btn btn-sm btn-primary" onclick="captureSnapshot()">
+              Ambil Foto
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. DI BAWAH KAMERA: Kolom ESP32 Buzzer & Riwayat Catatan Deteksi -->
+      <section class="bottom-panels-grid">
+        
+        <!-- Kolom ESP32 Buzzer (MQTT) -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">ESP32 Buzzer (MQTT)</span>
+            <span id="mqttStatusBadge" style="font-size: 0.7rem; color: var(--text-dim);">Offline</span>
+          </div>
+
+          <div class="panel-body">
+            <div class="form-group">
+              <label style="display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; cursor: pointer;">
+                <span style="color: var(--text-muted);">Aktifkan Alarm Buzzer:</span>
+                <input type="checkbox" id="mqttEnabledToggle" checked onchange="saveMqttConfig()" style="cursor: pointer;">
+              </label>
+            </div>
+
+            <div class="form-group">
+              <div class="form-label"><span>Host Broker:</span></div>
+              <input type="text" id="mqttBrokerInput" class="text-input" value="76.13.19.250" style="width: 100%;">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 75px 1fr; gap: 0.35rem;">
+              <div>
+                <div class="form-label"><span>Port:</span></div>
+                <input type="number" id="mqttPortInput" class="text-input" value="1883" style="width: 100%;">
+              </div>
+              <div>
+                <div class="form-label"><span>Topik MQTT:</span></div>
+                <input type="text" id="mqttTopicInput" class="text-input" value="flamevision/fire_alert" style="width: 100%;">
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.35rem; margin-top: 0.25rem;">
+              <button class="btn btn-sm btn-primary" style="flex: 1;" onclick="saveMqttConfig()">Simpan</button>
+              <button class="btn btn-sm" onclick="testMqttBuzzer()">Uji Buzzer</button>
+            </div>
           </div>
         </div>
 
-      </div>
+        <!-- Kolom Riwayat Catatan Deteksi -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div>
+              <span class="panel-title">Riwayat Catatan Deteksi</span>
+              <span id="logCountBadge" style="font-size: 0.7rem; color: var(--text-dim); margin-left: 0.25rem;">(0)</span>
+            </div>
+            <div style="display: flex; gap: 0.25rem;">
+              <button class="btn btn-sm btn-subtle" onclick="copyNotesToClipboard()" title="Salin">Salin</button>
+              <button class="btn btn-sm btn-subtle" onclick="exportNotesToTxt()" title="Ekspor">Ekspor</button>
+              <button class="btn btn-sm btn-subtle" onclick="clearDetectionNotes()" style="color: #ef4444;" title="Hapus">Hapus</button>
+            </div>
+          </div>
 
-      <!-- Controls Toolbar -->
-      <div class="video-toolbar">
-        <div class="btn-group">
-          <button class="btn active" id="btnAnnotated" onclick="setViewMode('annotated')">🎯 Bounding Box</button>
-          <button class="btn" id="btnSplit" onclick="setViewMode('split')">🔀 Split / Mask</button>
-          <button class="btn" id="btnRaw" onclick="setViewMode('raw')">📷 Raw Feed</button>
-          <button class="btn" id="btnFlipCam" onclick="flipCamera()">🔄 Ganti Kamera (HP/Depan/Belakang)</button>
+          <div class="log-input-bar">
+            <input type="text" id="manualNoteInput" class="text-input" placeholder="Tulis catatan manual..." onkeypress="handleNoteKeyPress(event)" style="flex: 1;">
+            <button class="btn btn-sm" onclick="addManualNote()">Tambah</button>
+          </div>
+
+          <div id="notesList" class="log-list">
+            <div id="notesEmptyState" class="log-empty">
+              <span>Belum ada catatan deteksi.</span>
+            </div>
+          </div>
         </div>
 
-        <div style="display: flex; gap: 0.5rem;">
-          <label class="btn" style="cursor: pointer; background: var(--bg-glass);">
-            📂 Uji Gambar/File
-            <input type="file" accept="image/*,video/*" style="display: none;" onchange="handleFileUpload(this.files[0])">
-          </label>
-          <button class="btn btn-primary" onclick="captureSnapshot()">
-            📸 Snapshot
-          </button>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- Right Sidebar -->
+    </div>
+
+    <!-- Right Sidebar: Sumber Video, Sensitivitas, dan Foto -->
     <aside class="sidebar">
       
-      <!-- Network / Mobile Access Banner -->
-      <div class="network-badge">
-        📱 <strong>Akses Dari HP / Laptop Lain:</strong><br>
-        Buka: <strong>http://{{ local_ip }}:5000</strong> pada browser HP yang terhubung ke Wi-Fi yang sama.<br>
-        <small style="color: var(--text-muted);">(Buka di <strong>http://localhost:5000</strong> untuk akses kamera tanpa HTTPS)</small>
-      </div>
-
-      <!-- Live Metrics Card -->
+      <!-- Sumber Video Card -->
       <div class="card">
-        <div class="card-title">Live Telemetry</div>
-        <div class="telemetry-grid">
-          <div class="telemetry-box">
-            <div class="telemetry-label">Flame Status</div>
-            <div id="metricFire" class="telemetry-value" style="color: #10b981;">SAFE</div>
-          </div>
-          <div class="telemetry-box">
-            <div class="telemetry-label">Confidence</div>
-            <div id="metricConf" class="telemetry-value">0%</div>
-          </div>
-          <div class="telemetry-box">
-            <div class="telemetry-label">Flame Count</div>
-            <div id="metricCount" class="telemetry-value">0</div>
-          </div>
-          <div class="telemetry-box">
-            <div class="telemetry-label">Stream FPS</div>
-            <div id="metricFps" class="telemetry-value">0.0</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Source Selection Card -->
-      <div class="card">
-        <div class="card-title">Pilih Sumber Video</div>
-        <div class="control-group">
+        <div class="card-title">Sumber Input Video</div>
+        <div class="form-group">
           <select id="sourceSelect" class="select-input" onchange="switchSource(this.value)">
-            <option value="client" selected>📱 Kamera Browser Ini (HP / Laptop)</option>
-            <option value="sample_fire.mp4">🔥 Video Simulasi Api (sample_fire.mp4)</option>
-            <option value="0">🖥️ Kamera Server OpenCV (Index 0)</option>
+            <option value="client" selected>Kamera Perangkat Ini</option>
+            <option value="sample_fire.mp4">Video Uji Api (sample_fire.mp4)</option>
+            <option value="0">Kamera Server (Index 0)</option>
           </select>
         </div>
       </div>
 
-      <!-- Sensitivity Slider Card -->
+      <!-- Sensitivitas Deteksi Card -->
       <div class="card">
-        <div class="card-title">Sensitivitas Deteksi Api</div>
+        <div class="card-title">Sensitivitas Deteksi</div>
         
-        <div class="control-group">
-          <div class="control-label">
-            <span>Hue Max (Batas Warna Kuning/Jingga)</span>
-            <span id="valHMax">25</span>
+        <div class="form-group">
+          <div class="form-label">
+            <span>Batas Spektrum Warna</span>
+            <span id="valHMax">22</span>
           </div>
-          <input type="range" min="15" max="50" value="25" class="control-slider" id="sliderHMax" oninput="updateSettings()">
+          <input type="range" min="15" max="35" value="22" class="slider-input" id="sliderHMax" oninput="updateSettings()">
         </div>
 
-        <div class="control-group">
-          <div class="control-label">
-            <span>Saturation Min (Kepekatan Warna Api)</span>
-            <span id="valSMin">100</span>
+        <div class="form-group">
+          <div class="form-label">
+            <span>Kepekatan Warna Api</span>
+            <span id="valSMin">120</span>
           </div>
-          <input type="range" min="50" max="220" value="100" class="control-slider" id="sliderSMin" oninput="updateSettings()">
+          <input type="range" min="60" max="220" value="120" class="slider-input" id="sliderSMin" oninput="updateSettings()">
         </div>
 
-        <div class="control-group">
-          <div class="control-label">
-            <span>Value Min (Kecerahan Api Minimum)</span>
+        <div class="form-group">
+          <div class="form-label">
+            <span>Kecerahan Pijar Api</span>
             <span id="valVMin">190</span>
           </div>
-          <input type="range" min="120" max="250" value="190" class="control-slider" id="sliderVMin" oninput="updateSettings()">
+          <input type="range" min="120" max="250" value="190" class="slider-input" id="sliderVMin" oninput="updateSettings()">
         </div>
 
-        <div class="control-group">
-          <div class="control-label">
-            <span>Min Contour Area (Luas Minimum Piksel)</span>
-            <span id="valMinArea">600</span>
+        <div class="form-group">
+          <div class="form-label">
+            <span>Luas Area Minimum</span>
+            <span id="valMinArea">450</span>
           </div>
-          <input type="range" min="200" max="3000" step="50" value="600" class="control-slider" id="sliderMinArea" oninput="updateSettings()">
+          <input type="range" min="150" max="3000" step="50" value="450" class="slider-input" id="sliderMinArea" oninput="updateSettings()">
         </div>
       </div>
 
-      <!-- Snapshots Card -->
+      <!-- Foto Tersimpan Card -->
       <div class="card">
-        <div class="card-title">Snapshot Tersimpan</div>
-        <div id="snapshotGallery" class="snapshots-container">
-          <span style="color: var(--text-muted); font-size: 0.8rem;">Belum ada snapshot.</span>
+        <div class="card-title">Foto Tersimpan</div>
+        <div id="snapshotGallery" class="snapshots-grid">
+          <span style="color: var(--text-dim); font-size: 0.72rem;">Belum ada foto.</span>
         </div>
       </div>
 
     </aside>
   </main>
 
-  <!-- Frontend Logic -->
+  <!-- JavaScript Logic -->
   <script>
     let currentSource = 'client';
     let viewMode = 'annotated';
     let audioAlarmEnabled = true;
     let audioCtx = null;
-    let lastAlarmBeep = 0;
+    let activeWebAudioOsc = null;
+    let activeWebAudioGain = null;
+
+    let isCurrentlyInFire = false;
+    let fireStartTime = null;
+    let lastLoggedOngoingTime = 0;
+    const detectionLogs = [];
 
     const clientVideo = document.getElementById('clientVideo');
     const canvasOverlay = document.getElementById('canvasOverlay');
@@ -196,10 +271,12 @@
     const cameraPrompt = document.getElementById('cameraPrompt');
     const promptTitle = document.getElementById('promptTitle');
     const promptDesc = document.getElementById('promptDesc');
-    const promptIcon = document.getElementById('promptIcon');
+    const notesList = document.getElementById('notesList');
+    const notesEmptyState = document.getElementById('notesEmptyState');
+    const logCountBadge = document.getElementById('logCountBadge');
 
     let clientStream = null;
-    let currentFacingMode = 'user'; // default front / laptop camera
+    let currentFacingMode = 'user';
     let isProcessingFrame = false;
     let lastDetections = [];
     let lastMaskImage = null;
@@ -209,59 +286,211 @@
     let currentFps = 0.0;
     let isUploadingFile = false;
 
-    // Web Audio Synthesizer Alarm
-    function playAlarmTone() {
+    function getAudioContext() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function playMilitaryKlaxonTone() {
       if (!audioAlarmEnabled) return;
-      const now = Date.now();
-      if (now - lastAlarmBeep < 800) return;
-      lastAlarmBeep = now;
-
       try {
-        if (!audioCtx) {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (audioCtx.state === 'suspended') {
-          audioCtx.resume();
-        }
+        const ctxAudio = getAudioContext();
+        if (activeWebAudioOsc) return;
 
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        const osc = ctxAudio.createOscillator();
+        const gain = ctxAudio.createGain();
+        
         osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(900, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1800, audioCtx.currentTime + 0.15);
-        osc.frequency.exponentialRampToValueAtTime(900, audioCtx.currentTime + 0.3);
-
-        gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.frequency.setValueAtTime(2700, ctxAudio.currentTime);
+        gain.gain.setValueAtTime(0.25, ctxAudio.currentTime);
 
         osc.connect(gain);
-        gain.connect(audioCtx.destination);
+        gain.connect(ctxAudio.destination);
 
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.3);
+        activeWebAudioOsc = osc;
+        activeWebAudioGain = gain;
       } catch (err) {
-        console.warn("Audio error:", err);
+        console.warn("Audio alarm error:", err);
+      }
+    }
+
+    function stopMilitaryKlaxonTone() {
+      if (activeWebAudioOsc) {
+        try {
+          activeWebAudioOsc.stop();
+          activeWebAudioOsc.disconnect();
+        } catch (e) {}
+        activeWebAudioOsc = null;
+        activeWebAudioGain = null;
       }
     }
 
     function toggleAudioAlarm() {
       audioAlarmEnabled = !audioAlarmEnabled;
-      document.getElementById("audioStateText").textContent = audioAlarmEnabled ? "ON" : "OFF";
-      document.getElementById("audioIcon").textContent = audioAlarmEnabled ? "🔊" : "🔇";
-      if (audioAlarmEnabled && !audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      document.getElementById("audioStateText").textContent = audioAlarmEnabled ? "Aktif" : "Nonaktif";
+      if (!audioAlarmEnabled) {
+        stopMilitaryKlaxonTone();
+      } else {
+        getAudioContext();
       }
     }
 
-    // Progressive getUserMedia with Fallbacks
+    function testMilitaryAlarm() {
+      playMilitaryKlaxonTone();
+      setTimeout(stopMilitaryKlaxonTone, 1500);
+    }
+
+    function formatTime(date = new Date()) {
+      const h = String(date.getHours()).padStart(2, '0');
+      const m = String(date.getMinutes()).padStart(2, '0');
+      const s = String(date.getSeconds()).padStart(2, '0');
+      return `${h}:${m}:${s}`;
+    }
+
+    function addDetectionLog(type, tagClass, messageText) {
+      const timeStr = formatTime();
+      const logEntry = {
+        time: timeStr,
+        type: type,
+        tagClass: tagClass,
+        message: messageText,
+        id: Date.now() + Math.random().toString(16).slice(2)
+      };
+
+      detectionLogs.unshift(logEntry);
+      renderNotesList();
+    }
+
+    function renderNotesList() {
+      if (detectionLogs.length === 0) {
+        notesEmptyState.style.display = 'flex';
+        notesList.innerHTML = '';
+        notesList.appendChild(notesEmptyState);
+        logCountBadge.textContent = '(0)';
+        return;
+      }
+
+      notesEmptyState.style.display = 'none';
+      logCountBadge.textContent = `(${detectionLogs.length})`;
+
+      notesList.innerHTML = detectionLogs.map(item => `
+        <div class="log-row">
+          <div class="log-time">${item.time}</div>
+          <div><span class="log-tag ${item.tagClass}">${item.type}</span></div>
+          <div class="log-desc">${item.message}</div>
+          <div>
+            <button class="btn btn-sm btn-subtle" style="padding: 0.1rem 0.35rem; font-size: 0.7rem;" onclick="removeNote('${item.id}')" title="Hapus">✕</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function removeNote(id) {
+      const idx = detectionLogs.findIndex(n => n.id === id);
+      if (idx !== -1) {
+        detectionLogs.splice(idx, 1);
+        renderNotesList();
+      }
+    }
+
+    function clearDetectionNotes() {
+      if (detectionLogs.length === 0) return;
+      detectionLogs.length = 0;
+      renderNotesList();
+    }
+
+    function copyNotesToClipboard() {
+      if (detectionLogs.length === 0) {
+        alert("Belum ada catatan untuk disalin.");
+        return;
+      }
+      const text = detectionLogs.map(n => `[${n.time}] [${n.type}] ${n.message.replace(/<[^>]*>/g, '')}`).join('\n');
+      navigator.clipboard.writeText(text).then(() => {
+        alert("Catatan berhasil disalin ke clipboard.");
+      });
+    }
+
+    function exportNotesToTxt() {
+      if (detectionLogs.length === 0) {
+        alert("Belum ada catatan untuk disimpan.");
+        return;
+      }
+      const text = `=== LOG DETEKSI API FLAME VISION ===\nTanggal: ${new Date().toLocaleDateString()}\n\n` +
+        detectionLogs.map(n => `[${n.time}] [${n.type}] ${n.message.replace(/<[^>]*>/g, '')}`).join('\n');
+
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `log_deteksi_api_${new Date().toISOString().slice(0, 10)}.txt`;
+      a.click();
+    }
+
+    function addManualNote() {
+      const input = document.getElementById('manualNoteInput');
+      const val = (input.value || '').trim();
+      if (!val) return;
+      addDetectionLog('CATATAN', 'note', val);
+      input.value = '';
+    }
+
+    function handleNoteKeyPress(e) {
+      if (e.key === 'Enter') {
+        addManualNote();
+      }
+    }
+
+    function handleDetectionLogging(isFire, fireCount, confidence) {
+      const now = Date.now();
+
+      if (isFire) {
+        if (!isCurrentlyInFire) {
+          isCurrentlyInFire = true;
+          fireStartTime = now;
+          lastLoggedOngoingTime = now;
+          addDetectionLog(
+            'BAHAYA',
+            'danger',
+            `<strong>Api terdeteksi.</strong> ${fireCount} titik api (${confidence}%).`
+          );
+        } else {
+          if (now - lastLoggedOngoingTime > 8000) {
+            lastLoggedOngoingTime = now;
+            const elapsedSec = Math.round((now - fireStartTime) / 1000);
+            addDetectionLog(
+              'AKTIF',
+              'danger',
+              `Api masih aktif (${elapsedSec} detik). Titik: ${fireCount} (${confidence}%).`
+            );
+          }
+        }
+      } else {
+        if (isCurrentlyInFire) {
+          const totalSec = Math.round((now - fireStartTime) / 1000);
+          isCurrentlyInFire = false;
+          fireStartTime = null;
+          addDetectionLog(
+            'NORMAL',
+            'normal',
+            `Kondisi normal (durasi api: ${totalSec} detik).`
+          );
+        }
+      }
+    }
+
     async function startClientCamera() {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showCameraError("Browser Tidak Mendukung Kamera", "Browser Anda membatasi akses kamera melalui HTTP. Silakan gunakan http://localhost:5000 atau upload gambar/video langsung.");
+        showCameraError("Akses Kamera Dibatasi", "Browser membatasi kamera pada koneksi non-HTTPS. Gunakan http://localhost:5000 atau upload file langsung.");
         return;
       }
 
       promptTitle.textContent = "Menghubungkan Kamera...";
-      promptDesc.textContent = "Mohon klik 'Allow / Izinkan' pada popup izin browser.";
+      promptDesc.textContent = "Klik 'Allow / Izinkan' pada popup izin kamera browser.";
 
       if (clientStream) {
         clientStream.getTracks().forEach(track => track.stop());
@@ -269,30 +498,25 @@
       }
 
       let stream = null;
-
-      // Strategy 1: Try requested facingMode
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: currentFacingMode },
           audio: false
         });
       } catch (e1) {
-        console.warn("FacingMode constraint failed, trying basic video...", e1);
-        // Strategy 2: Try basic video constraint (works on any laptop webcam)
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false
           });
         } catch (e2) {
-          console.error("All camera getUserMedia attempts failed:", e2);
-          showCameraError("Izin Kamera Ditolak / Dibatasi", getErrorMessage(e2));
+          showCameraError("Izin Kamera Ditolak", "Pastikan izin kamera sudah diaktifkan di browser.");
           return;
         }
       }
 
       if (!stream) {
-        showCameraError("Kamera Tidak Terdeteksi", "Pastikan kamera tidak sedang dipakai aplikasi lain (Zoom, Teams, dll).");
+        showCameraError("Kamera Tidak Terdeteksi", "Pastikan kamera tidak digunakan aplikasi lain.");
         return;
       }
 
@@ -315,26 +539,13 @@
       };
     }
 
-    function getErrorMessage(err) {
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        return "Akses kamera diblokir di browser. Klik ikon gembok 🔒 di sebelah kiri URL address bar, lalu ubah Camera menjadi 'Allow/Izinkan', lalu refresh halaman.";
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        return "Tidak ada kamera yang terpasang di perangkat ini.";
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        return "Kamera sedang digunakan oleh aplikasi lain. Tutup aplikasi yang menggunakan kamera lalu coba lagi.";
-      }
-      return err.message || "Gagal mengakses kamera.";
-    }
-
     function showCameraError(title, desc) {
       cameraPrompt.classList.remove('hidden');
-      promptIcon.textContent = "⚠️";
       promptTitle.textContent = title;
       promptDesc.textContent = desc;
       document.getElementById('statusText').textContent = 'Kamera Dibatasi';
     }
 
-    // Flip Camera between Front & Back
     function flipCamera() {
       currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
       if (currentSource === 'client') {
@@ -342,7 +553,6 @@
       }
     }
 
-    // Handle Direct File Upload (Image or Video)
     function handleFileUpload(file) {
       if (!file) return;
       isUploadingFile = true;
@@ -364,16 +574,32 @@
           canvasOverlay.height = img.height;
           ctx.drawImage(img, 0, 0);
 
-          // Process this image on backend
           const res = await fetch('/api/process_frame', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: base64Data })
+            body: JSON.stringify({ image: base64Data, include_mask: (viewMode === 'split') })
           });
           const data = await res.json();
           if (data && !data.error) {
             lastDetections = data.detections || [];
-            drawClientDetections(img.width, img.height);
+            if (data.mask_b64) {
+              const maskImg = new Image();
+              maskImg.src = "data:image/jpeg;base64," + data.mask_b64;
+              maskImg.onload = () => {
+                lastMaskImage = maskImg;
+                if (viewMode === 'split') {
+                  canvasOverlay.width = img.width * 2;
+                  canvasOverlay.height = img.height;
+                  ctx.drawImage(img, 0, 0, img.width, img.height);
+                  drawClientDetections(img.width, img.height, 0);
+                  ctx.drawImage(maskImg, img.width, 0, img.width, img.height);
+                } else {
+                  drawClientDetections(img.width, img.height, 0);
+                }
+              };
+            } else {
+              drawClientDetections(img.width, img.height, 0);
+            }
             updateTelemetryUI(data.is_fire, data.fire_count, data.confidence);
           }
         };
@@ -382,39 +608,66 @@
       reader.readAsDataURL(file);
     }
 
-    // Frame Pipeline Loop
     function startFramePipeline() {
       if (frameSendTimer) clearInterval(frameSendTimer);
 
-      // Render loop
       function renderLoop() {
         if (!isUploadingFile && currentSource === 'client' && clientVideo.readyState === clientVideo.HAVE_ENOUGH_DATA) {
-          const w = canvasOverlay.width = clientVideo.videoWidth;
-          const h = canvasOverlay.height = clientVideo.videoHeight;
+          const origW = clientVideo.videoWidth || 640;
+          const origH = clientVideo.videoHeight || 480;
 
-          ctx.clearRect(0, 0, w, h);
-
-          // 1. Draw Camera Feed
           if (viewMode === 'split' && lastMaskImage) {
-            ctx.drawImage(clientVideo, 0, 0, w / 2, h);
-            ctx.drawImage(lastMaskImage, w / 2, 0, w / 2, h);
+            // Mode Split Berdampingan: Lebar kanvas 2x lebar asli, tinggi tetap sama persis
+            // Menjaga rasio aspek asli 100% tanpa distorsi vertikal atau gepeng horizontal
+            if (canvasOverlay.width !== origW * 2 || canvasOverlay.height !== origH) {
+              canvasOverlay.width = origW * 2;
+              canvasOverlay.height = origH;
+            }
+            ctx.clearRect(0, 0, origW * 2, origH);
+
+            // Sisi Kiri: Video Kamera Asli
+            ctx.drawImage(clientVideo, 0, 0, origW, origH);
+            drawClientDetections(origW, origH, 0);
+
+            // Sisi Kanan: Mask Sensor Sensor (Inferno Colormap)
+            ctx.drawImage(lastMaskImage, origW, 0, origW, origH);
+
+            // Garis Pembatas Tengah
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(origW, 0);
+            ctx.lineTo(origW, origH);
+            ctx.stroke();
+
+            // Label Penanda Mask
+            ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
+            ctx.fillRect(origW + 12, 12, 175, 24);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "600 11px Inter, sans-serif";
+            ctx.fillText("MASK SENSOR (INFERNO)", origW + 20, 28);
+
           } else {
-            ctx.drawImage(clientVideo, 0, 0, w, h);
+            // Mode Normal (Kotak Deteksi / Kamera Asli): Ukuran kanvas sama persis dengan video
+            if (canvasOverlay.width !== origW || canvasOverlay.height !== origH) {
+              canvasOverlay.width = origW;
+              canvasOverlay.height = origH;
+            }
+            ctx.clearRect(0, 0, origW, origH);
+            ctx.drawImage(clientVideo, 0, 0, origW, origH);
+
+            if (viewMode === 'annotated') {
+              drawClientDetections(origW, origH, 0);
+            }
           }
 
-          // 2. Draw Bounding Boxes
-          if (viewMode === 'annotated') {
-            drawClientDetections(w, h);
-          }
-
-          // Compute client FPS
           fpsCounter++;
           const now = performance.now();
           if (now - lastFpsTime >= 1000) {
             currentFps = (fpsCounter * 1000) / (now - lastFpsTime);
             fpsCounter = 0;
             lastFpsTime = now;
-            document.getElementById('metricFps').textContent = currentFps.toFixed(1);
+            document.getElementById('metricFps').textContent = `${currentFps.toFixed(1)} FPS`;
           }
         }
 
@@ -422,7 +675,6 @@
       }
       requestAnimationFrame(renderLoop);
 
-      // Frame sender to OpenCV backend at ~12-15 FPS
       const offscreenCanvas = document.createElement('canvas');
       const offCtx = offscreenCanvas.getContext('2d');
 
@@ -477,52 +729,60 @@
       }, 80);
     }
 
-    // Render stylish HUD Bounding Boxes on Canvas
-    function drawClientDetections(w, h) {
+    function drawClientDetections(w, h, offsetX = 0) {
       for (const det of lastDetections) {
         const { x, y, w: bw, h: bh, confidence } = det;
 
-        // 1. Red Bounding Box
-        ctx.strokeStyle = "#ff2211";
+        // Kotak Bounding Box Merah Presisi
+        ctx.strokeStyle = "#dc2626";
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(offsetX + x, y, bw, bh);
+
+        // Aksen Sudut Modern
+        const cLen = Math.min(16, Math.max(6, Math.floor(bw / 4), Math.floor(bh / 4)));
+        ctx.strokeStyle = "#f97316";
         ctx.lineWidth = 3;
-        ctx.strokeRect(x, y, bw, bh);
-
-        // 2. Corner Bracket Accents
-        const cornerLen = Math.min(22, Math.max(10, Math.floor(bw / 4)));
-        ctx.strokeStyle = "#ff9800";
-        ctx.lineWidth = 4;
-
-        // Top-left
+        // Kiri-Atas
         ctx.beginPath();
-        ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y);
-        // Top-right
-        ctx.moveTo(x + bw - cornerLen, y); ctx.lineTo(x + bw, y); ctx.lineTo(x + bw, y + cornerLen);
-        // Bottom-left
-        ctx.moveTo(x, y + bh - cornerLen); ctx.lineTo(x, y + bh); ctx.lineTo(x + cornerLen, y + bh);
-        // Bottom-right
-        ctx.moveTo(x + bw - cornerLen, y + bh); ctx.lineTo(x + bw, y + bh); ctx.lineTo(x + bw, y + bh - cornerLen);
+        ctx.moveTo(offsetX + x, y + cLen);
+        ctx.lineTo(offsetX + x, y);
+        ctx.lineTo(offsetX + x + cLen, y);
+        ctx.stroke();
+        // Kanan-Atas
+        ctx.beginPath();
+        ctx.moveTo(offsetX + x + bw - cLen, y);
+        ctx.lineTo(offsetX + x + bw, y);
+        ctx.lineTo(offsetX + x + bw, y + cLen);
+        ctx.stroke();
+        // Kiri-Bawah
+        ctx.beginPath();
+        ctx.moveTo(offsetX + x, y + bh - cLen);
+        ctx.lineTo(offsetX + x, y + bh);
+        ctx.lineTo(offsetX + x + cLen, y + bh);
+        ctx.stroke();
+        // Kanan-Bawah
+        ctx.beginPath();
+        ctx.moveTo(offsetX + x + bw - cLen, y + bh);
+        ctx.lineTo(offsetX + x + bw, y + bh);
+        ctx.lineTo(offsetX + x + bw, y + bh - cLen);
         ctx.stroke();
 
-        // 3. 'FIRE DETECTED' Badge
-        const labelText = `FIRE DETECTED (${Math.round(confidence)}%)`;
-        ctx.font = "bold 13px Inter, sans-serif";
+        // Label Badge
+        const labelText = `API ${Math.round(confidence)}%`;
+        ctx.font = "600 11px Inter, sans-serif";
         const textMetrics = ctx.measureText(labelText);
-        const badgeW = textMetrics.width + 16;
-        const badgeH = 24;
-        const badgeY = (y >= badgeH + 6) ? (y - badgeH - 4) : (y + 4);
+        const badgeW = textMetrics.width + 12;
+        const badgeH = 20;
+        const badgeY = (y >= badgeH + 4) ? (y - badgeH - 2) : (y + 2);
 
-        ctx.fillStyle = "#d31200";
-        ctx.fillRect(x, badgeY, badgeW, badgeH);
-        ctx.strokeStyle = "#ff4433";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x, badgeY, badgeW, badgeH);
+        ctx.fillStyle = "rgba(220, 38, 38, 0.95)";
+        ctx.fillRect(offsetX + x, badgeY, badgeW, badgeH);
 
         ctx.fillStyle = "#ffffff";
-        ctx.fillText(labelText, x + 8, badgeY + 16);
+        ctx.fillText(labelText, offsetX + x + 6, badgeY + 14);
       }
     }
 
-    // Update Status Indicators & Alarm
     function updateTelemetryUI(isFire, fireCount, confidence) {
       const statusIndicator = document.getElementById('statusIndicator');
       const statusText = document.getElementById('statusText');
@@ -530,25 +790,27 @@
       const metricFire = document.getElementById('metricFire');
 
       if (isFire) {
-        statusIndicator.className = 'status-indicator alarm';
-        statusText.textContent = `FIRE DETECTED (${fireCount})`;
+        statusIndicator.className = 'status-pill alarm';
+        statusText.textContent = `Api Terdeteksi (${fireCount})`;
         alarmOverlay.classList.add('active');
-        metricFire.textContent = 'DANGER 🔥';
-        metricFire.style.color = '#ff3823';
-        playAlarmTone();
+        metricFire.textContent = 'Bahaya';
+        metricFire.style.color = '#ef4444';
+        playMilitaryKlaxonTone();
       } else {
-        statusIndicator.className = 'status-indicator normal';
-        statusText.textContent = 'System Normal';
+        statusIndicator.className = 'status-pill normal';
+        statusText.textContent = 'Status Normal';
         alarmOverlay.classList.remove('active');
-        metricFire.textContent = 'SAFE';
-        metricFire.style.color = '#10b981';
+        metricFire.textContent = 'Normal';
+        metricFire.style.color = 'var(--status-safe)';
+        stopMilitaryKlaxonTone();
       }
 
       document.getElementById('metricConf').textContent = `${confidence}%`;
       document.getElementById('metricCount').textContent = fireCount;
+
+      handleDetectionLogging(isFire, fireCount, confidence);
     }
 
-    // Switch Source
     function switchSource(src) {
       currentSource = src;
       isUploadingFile = false;
@@ -577,7 +839,6 @@
       });
     }
 
-    // Set View Mode
     function setViewMode(mode) {
       viewMode = mode;
       document.querySelectorAll('.video-toolbar .btn-group .btn').forEach(b => {
@@ -597,7 +858,6 @@
       });
     }
 
-    // Update Sensitivity Settings
     function updateSettings() {
       const h_max = parseInt(document.getElementById('sliderHMax').value);
       const s_min = parseInt(document.getElementById('sliderSMin').value);
@@ -621,7 +881,6 @@
       });
     }
 
-    // Capture Snapshot
     async function captureSnapshot() {
       let payload = {};
       if (currentSource === 'client' && canvasOverlay.width > 0) {
@@ -636,41 +895,102 @@
       const data = await res.json();
       if (data.status === 'success') {
         loadSnapshots();
+        addDetectionLog('FOTO', 'note', `Foto tersimpan: <strong>${data.filename}</strong>`);
       }
     }
 
-    // Load Snapshots Gallery
     async function loadSnapshots() {
       const res = await fetch('/api/snapshots');
       const files = await res.json();
       const container = document.getElementById('snapshotGallery');
       if (files.length === 0) {
-        container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem;">Belum ada snapshot.</span>';
+        container.innerHTML = '<span style="color: var(--text-dim); font-size: 0.72rem;">Belum ada foto.</span>';
         return;
       }
       container.innerHTML = files.slice(0, 10).map(f => `
-        <a href="${f.url}" target="_blank" class="snapshot-thumb" title="${f.filename}">
+        <a href="${f.url}" target="_blank" class="snapshot-item" title="${f.filename}">
           <img src="${f.url}" alt="${f.filename}">
         </a>
       `).join('');
     }
 
-    // Polling Telemetry for Server Stream Mode
+    async function loadMqttConfig() {
+      try {
+        const res = await fetch('/api/mqtt');
+        const data = await res.json();
+        if (data) {
+          document.getElementById('mqttEnabledToggle').checked = !!data.enabled;
+          document.getElementById('mqttBrokerInput').value = data.broker || '76.13.19.250';
+          document.getElementById('mqttPortInput').value = data.port || 1883;
+          document.getElementById('mqttTopicInput').value = data.topic || 'flamevision/fire_alert';
+
+          const badge = document.getElementById('mqttStatusBadge');
+          if (!data.enabled) {
+            badge.textContent = 'Nonaktif';
+            badge.style.color = 'var(--text-dim)';
+          } else if (data.connected) {
+            badge.textContent = 'Terhubung';
+            badge.style.color = 'var(--status-safe)';
+          } else {
+            badge.textContent = 'Offline';
+            badge.style.color = '#ef4444';
+          }
+        }
+      } catch (err) {}
+    }
+
+    async function saveMqttConfig() {
+      const enabled = document.getElementById('mqttEnabledToggle').checked;
+      const broker = document.getElementById('mqttBrokerInput').value.trim();
+      const port = parseInt(document.getElementById('mqttPortInput').value.trim()) || 1883;
+      const topic = document.getElementById('mqttTopicInput').value.trim();
+
+      const badge = document.getElementById('mqttStatusBadge');
+      badge.textContent = 'Menghubungkan...';
+      badge.style.color = 'var(--text-muted)';
+
+      try {
+        await fetch('/api/mqtt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled, broker, port, topic })
+        });
+        setTimeout(loadMqttConfig, 1000);
+      } catch (err) {
+        alert("Gagal menyimpan konfigurasi.");
+      }
+    }
+
+    async function testMqttBuzzer() {
+      try {
+        const res = await fetch('/api/mqtt/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        addDetectionLog('UJI BUZZER', 'note', data.message);
+      } catch (err) {
+        alert("Gagal mengirim perintah uji coba.");
+      }
+    }
+
     setInterval(async () => {
       if (currentSource !== 'client') {
         try {
           const res = await fetch('/api/status');
           const data = await res.json();
           updateTelemetryUI(data.is_fire, data.fire_count, data.confidence);
-          document.getElementById('metricFps').textContent = data.fps.toFixed(1);
+          document.getElementById('metricFps').textContent = `${data.fps.toFixed(1)} FPS`;
         } catch (e) {}
       }
     }, 500);
 
-    // Initialize on page load
+    setInterval(loadMqttConfig, 5000);
+
     window.addEventListener('DOMContentLoaded', () => {
       startClientCamera();
       loadSnapshots();
+      loadMqttConfig();
     });
   </script>
 </body>

@@ -19,9 +19,9 @@ _last_beep_time = 0.0
 _beep_lock = threading.Lock()
 
 
-def trigger_audio_alert(frequency: int = 2500, duration_ms: int = 200, cooldown_sec: float = 0.8) -> None:
+def trigger_audio_alert(frequency: int = 800, duration_ms: int = 160, cooldown_sec: float = 1.0) -> None:
     """
-    Triggers an audio beep alarm on a separate thread without blocking the main video loop.
+    Triggers a military-style dual-burst audio alert on a separate thread without blocking the main video loop.
     """
     global _last_beep_time
     current_time = time.time()
@@ -34,13 +34,16 @@ def trigger_audio_alert(frequency: int = 2500, duration_ms: int = 200, cooldown_
             return
         _last_beep_time = current_time
 
-    def _beep_worker():
+    def _military_alarm_worker():
         try:
-            winsound.Beep(frequency, duration_ms)
+            # Tactical military dual-tone burst (Klaxon alert)
+            winsound.Beep(650, 140)
+            time.sleep(0.04)
+            winsound.Beep(900, 180)
         except Exception:
             pass
 
-    threading.Thread(target=_beep_worker, daemon=True).start()
+    threading.Thread(target=_military_alarm_worker, daemon=True).start()
 
 
 def draw_fire_boxes(

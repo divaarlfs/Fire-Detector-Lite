@@ -120,7 +120,9 @@ Menghitung luas area kontur ($Area \ge 600\text{ px}$) dan kepadatan piksel (*pi
 ├── run_web.bat              # Launcher 1-klik untuk Web Dashboard
 ├── requirements.txt         # Daftar pustaka: opencv-python, numpy, flask
 ├── README.md                # Panduan instalasi dan penggunaan cepat
-└── PROJECT_DOCUMENTATION.md # Dokumentasi teknis lengkap proyek
+└── docs/
+    ├── PROJECT_DESCRIPTION.md   # Ringkasan singkat proyek
+    └── PROJECT_DOCUMENTATION.md # Dokumentasi teknis lengkap proyek
 ```
 
 ---
