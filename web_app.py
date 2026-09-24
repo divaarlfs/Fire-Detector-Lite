@@ -136,8 +136,11 @@ def generate_frames():
         is_fire, detections, mask = detector.detect(frame)
         conf = detections[0]["confidence"] if detections else 0.0
 
+        # Hanya trigger alarm jika api terdeteksi dengan tingkat keyakinan (confidence) > 35%
+        is_alarm_triggered = bool(is_fire and conf > 0.35)
+
         # Trigger MQTT Alarm to ESP32-C3
-        mqtt_notifier.publish_fire_alert(is_fire, len(detections), conf)
+        mqtt_notifier.publish_fire_alert(is_alarm_triggered, len(detections), conf)
 
         latest_status.update({
             "is_fire": is_fire,
@@ -204,8 +207,11 @@ def process_client_frame():
         is_fire, detections, mask = detector.detect(frame)
         top_conf = detections[0]["confidence"] if detections else 0.0
 
+        # Hanya trigger alarm jika api terdeteksi dengan tingkat keyakinan (confidence) > 35%
+        is_alarm_triggered = bool(is_fire and top_conf > 0.35)
+
         # Trigger MQTT Alarm to ESP32-C3
-        mqtt_notifier.publish_fire_alert(is_fire, len(detections), top_conf)
+        mqtt_notifier.publish_fire_alert(is_alarm_triggered, len(detections), top_conf)
 
         # Format detection bounding boxes for client-side canvas rendering
         formatted_detections = []
@@ -285,7 +291,9 @@ def settings():
     global view_mode
     if request.method == "POST":
         data = request.json or {}
-        if "h_min" in data:
+        if "conf_threshold" in data:
+            detector.update_params(conf_threshold=float(data["conf_threshold"]))
+        if "h_min" in data or "h_max" in data:
             detector.update_params(
                 h_min=int(data.get("h_min", detector.h_min)),
                 h_max=int(data.get("h_max", detector.h_max)),
@@ -310,6 +318,7 @@ def get_current_settings():
         "v_min": detector.v_min,
         "v_max": detector.v_max,
         "min_contour_area": detector.min_contour_area,
+        "conf_threshold": detector.conf_threshold,
         "view_mode": view_mode,
         "source": current_source,
     }

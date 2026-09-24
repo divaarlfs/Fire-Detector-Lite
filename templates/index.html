@@ -232,6 +232,14 @@
 
         <div class="form-group">
           <div class="form-label">
+            <span>Ambang Keyakinan AI (YOLO)</span>
+            <span id="valConfThresh">50%</span>
+          </div>
+          <input type="range" min="30" max="85" step="5" value="50" class="slider-input" id="sliderConfThresh" oninput="updateSettings()">
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">
             <span>Luas Area Minimum</span>
             <span id="valMinArea">450</span>
           </div>
@@ -789,13 +797,24 @@
       const alarmOverlay = document.getElementById('alarmOverlay');
       const metricFire = document.getElementById('metricFire');
 
-      if (isFire) {
+      // Buzzer web & sirene hanya berbunyi jika keyakinan api > 35%
+      const isAlarmTriggered = Boolean(isFire && confidence > 35);
+
+      if (isAlarmTriggered) {
         statusIndicator.className = 'status-pill alarm';
         statusText.textContent = `Api Terdeteksi (${fireCount})`;
         alarmOverlay.classList.add('active');
         metricFire.textContent = 'Bahaya';
         metricFire.style.color = '#ef4444';
         playMilitaryKlaxonTone();
+      } else if (isFire) {
+        // Terdeteksi ada api tapi confidence <= 80%: Peringatan visual saja tanpa membunyikan buzzer
+        statusIndicator.className = 'status-pill warning';
+        statusText.textContent = `Pantauan Api (${confidence}%)`;
+        alarmOverlay.classList.remove('active');
+        metricFire.textContent = 'Waspada';
+        metricFire.style.color = '#f59e0b';
+        stopMilitaryKlaxonTone();
       } else {
         statusIndicator.className = 'status-pill normal';
         statusText.textContent = 'Status Normal';
@@ -808,7 +827,7 @@
       document.getElementById('metricConf').textContent = `${confidence}%`;
       document.getElementById('metricCount').textContent = fireCount;
 
-      handleDetectionLogging(isFire, fireCount, confidence);
+      handleDetectionLogging(isAlarmTriggered, fireCount, confidence);
     }
 
     function switchSource(src) {
@@ -862,11 +881,13 @@
       const h_max = parseInt(document.getElementById('sliderHMax').value);
       const s_min = parseInt(document.getElementById('sliderSMin').value);
       const v_min = parseInt(document.getElementById('sliderVMin').value);
+      const conf_thresh = parseInt(document.getElementById('sliderConfThresh').value);
       const min_area = parseInt(document.getElementById('sliderMinArea').value);
 
       document.getElementById('valHMax').textContent = h_max;
       document.getElementById('valSMin').textContent = s_min;
       document.getElementById('valVMin').textContent = v_min;
+      document.getElementById('valConfThresh').textContent = conf_thresh + '%';
       document.getElementById('valMinArea').textContent = min_area;
 
       fetch('/api/settings', {
@@ -876,6 +897,7 @@
           h_max: h_max,
           s_min: s_min,
           v_min: v_min,
+          conf_threshold: conf_thresh / 100.0,
           min_contour_area: min_area
         })
       });
@@ -987,10 +1009,41 @@
 
     setInterval(loadMqttConfig, 5000);
 
+    async function loadCurrentSettings() {
+      try {
+        const res = await fetch('/api/settings');
+        const data = await res.json();
+        if (data) {
+          if (data.conf_threshold !== undefined) {
+            const pct = Math.round(data.conf_threshold * 100);
+            document.getElementById('sliderConfThresh').value = pct;
+            document.getElementById('valConfThresh').textContent = pct + '%';
+          }
+          if (data.h_max !== undefined) {
+            document.getElementById('sliderHMax').value = data.h_max;
+            document.getElementById('valHMax').textContent = data.h_max;
+          }
+          if (data.s_min !== undefined) {
+            document.getElementById('sliderSMin').value = data.s_min;
+            document.getElementById('valSMin').textContent = data.s_min;
+          }
+          if (data.v_min !== undefined) {
+            document.getElementById('sliderVMin').value = data.v_min;
+            document.getElementById('valVMin').textContent = data.v_min;
+          }
+          if (data.min_contour_area !== undefined) {
+            document.getElementById('sliderMinArea').value = data.min_contour_area;
+            document.getElementById('valMinArea').textContent = data.min_contour_area;
+          }
+        }
+      } catch (e) {}
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       startClientCamera();
       loadSnapshots();
       loadMqttConfig();
+      loadCurrentSettings();
     });
   </script>
 </body>

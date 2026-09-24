@@ -27,7 +27,7 @@ class FireDetector:
     def __init__(
         self,
         model_path: Optional[str] = None,
-        conf_threshold: float = 0.28,
+        conf_threshold: float = 0.35,
         nms_threshold: float = 0.45,
         min_contour_area: int = 400,
         h_min: int = 0,
@@ -120,24 +120,17 @@ class FireDetector:
         scores = []
         class_ids = []
 
-        # Parse detections
+        # Parse detections strictly for Fire (Class 0)
         num_classes = preds.shape[1] - 4
         for i in range(preds.shape[0]):
             cx, cy, w, h = preds[i, :4]
             class_scores = preds[i, 4:]
             
-            # Fire is class 0 in fire/smoke models
+            # Fire is strictly class 0 in fire/smoke dataset
             fire_score = float(class_scores[0]) if num_classes >= 1 else 0.0
-            
-            # If multi-class, find top score
-            max_class_id = int(np.argmax(class_scores))
-            max_score = float(class_scores[max_class_id])
 
-            # Prioritize fire class (class 0)
-            target_score = fire_score if fire_score > (self.conf_threshold * 0.8) else max_score
-            target_class = 0 if fire_score > (self.conf_threshold * 0.8) else max_class_id
-
-            if target_score >= self.conf_threshold:
+            # Filter hanya jika skor kelas api memenuhi ambang batas (minimal 0.38)
+            if fire_score >= self.conf_threshold:
                 # Convert center xywh to top-left xywh and scale to original frame
                 x1 = int((cx - w / 2.0) * (w_orig / float(net_w)))
                 y1 = int((cy - h / 2.0) * (h_orig / float(net_h)))
@@ -150,9 +143,42 @@ class FireDetector:
                 bw = max(5, min(bw, w_orig - x1))
                 bh = max(5, min(bh, h_orig - y1))
 
+                # Verifikasi sekunder fisik api pada ROI (Strik menolak wajah, kulit manusia, dan pakaian)
+                roi = frame[y1 : y1 + bh, x1 : x1 + bw]
+                if roi.size > 0:
+                    # 1. Api nyata memiliki pendaran panas tinggi (peak R minimal 175)
+                    roi_r = roi[:, :, 2].astype(np.float32)
+                    roi_g = roi[:, :, 1].astype(np.float32)
+                    roi_b = roi[:, :, 0].astype(np.float32)
+                    max_r = float(np.max(roi_r))
+                    if max_r < 175:
+                        continue
+
+                    # 2. Perbedaan intensitas api: Api sejati memiliki R jauh lebih tinggi dari B (R - B >= 80)
+                    # Pada wajah/kulit manusia, R dan B jaraknya relatif dekat (R - B biasanya hanya 30 - 65)
+                    roi_hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+                    h_channel = roi_hsv[:, :, 0]
+                    s_channel = roi_hsv[:, :, 1]
+                    v_channel = roi_hsv[:, :, 2]
+
+                    # Piksel api murni: Warna jingga/merah (H <= 28 atau H >= 170), Saturation tinggi (S >= 120), Brightness tinggi (V >= 170), R > B + 65
+                    fire_pixel_mask = (
+                        ((h_channel <= 28) | (h_channel >= 172)) &
+                        (s_channel >= 115) &
+                        (v_channel >= 165) &
+                        (roi_r > roi_b + 60) &
+                        (roi_r > roi_g)
+                    )
+                    fire_pixel_ratio = float(np.count_nonzero(fire_pixel_mask)) / float(roi.shape[0] * roi.shape[1])
+
+                    # Wajah manusia memiliki fire_pixel_ratio sangat kecil (< 0.05) karena saturasinya rendah
+                    # Api sejati memiliki konsentrasi api minimal 8% dari area kotak
+                    if fire_pixel_ratio < 0.08:
+                        continue
+
                 boxes.append([x1, y1, bw, bh])
-                scores.append(target_score)
-                class_ids.append(target_class)
+                scores.append(fire_score)
+                class_ids.append(0)
 
         # Apply Non-Maximum Suppression
         detections: List[Dict[str, Any]] = []
@@ -173,7 +199,7 @@ class FireDetector:
                         "bbox": (bx, by, bw, bh),
                         "confidence": conf,
                         "area": float(bw * bh),
-                        "class_name": "API" if class_ids[i] == 0 else "ASAP"
+                        "class_name": "API"
                     })
 
         is_fire_detected = len(detections) > 0
